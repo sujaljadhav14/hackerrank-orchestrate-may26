@@ -30,13 +30,12 @@ def write_output(rows: list[dict], path: str = "support_tickets/output.csv") -> 
     Returns:
         The resulting DataFrame (useful for logging summaries).
     """
-    # Build output rows: issue column first (for eval join), then contract columns
-    _WRITE_COLS = ["issue"] + list(OUTPUT_COLUMNS)
+    # Only keep the 5 required columns in the exact contract order
     sanitized = []
     for row in rows:
-        sanitized.append({col: row.get(col, "") for col in _WRITE_COLS})
+        sanitized.append({col: row.get(col, "") for col in OUTPUT_COLUMNS})
 
-    df = pd.DataFrame(sanitized, columns=_WRITE_COLS)
+    df = pd.DataFrame(sanitized, columns=OUTPUT_COLUMNS)
 
     dest = Path(path)
     dest.parent.mkdir(parents=True, exist_ok=True)

@@ -1,128 +1,59 @@
-# Support Triage Agent
+# HackerRank Orchestrate: Support Triage Agent
 
-Multi-stage AI agent for the **HackerRank Orchestrate** hackathon (May 2026).
+This is a fully automated AI Support Triage Agent built for the HackerRank Orchestrate hackathon. It processes support tickets, retrieves relevant documentation, and determines the appropriate response, status, and request type.
 
----
+## Features
+- **Multi-Stage Pipeline**: Safety checks -> Domain Routing -> Hybrid Retrieval (BM25 + Semantic) -> LLM Triage -> Validation.
+- **Hybrid LLM Fallback**: Uses Google Gemini as the primary LLM, with local Ollama (Llama 3) as a fallback mechanism for resilience against rate limits and 429 ResourceExhausted errors.
+- **Fast-path Routing**: Handles basic conversational tickets (e.g., "Thank you") immediately without wasting LLM quota.
+- **Evaluation Framework**: Built-in accurate evaluator that tests against ground-truth samples based on issue text matching.
 
-## Architecture
+## Prerequisites
+- Python 3.10+
+- Google Gemini API Key (`GOOGLE_API_KEY`)
+- Optional: Local Ollama running with the `llama3` model (for fallback)
 
-```
-[CSV Row]
-    │
-    ▼
-[Stage 1: safety.py]      — keyword/injection check (deterministic, free)
-    │ safe
-    ▼
-[Stage 2: router.py]      — domain detection: hackerrank / claude / visa / unknown
-    │
-    ▼
-[Stage 3: retriever.py]   — hybrid BM25 + semantic top-k chunks
-    │                        confidence < 0.25 → ESCALATE (no LLM call)
-    ▼
-[Stage 4: agent.py]       — Claude API → JSON {status, product_area, response, ...}
-    │
-    ▼
-[Stage 5: validator.py]   — second Claude call: PASS / FAIL grounding check
-    │                        FAIL → escalate + safe fallback response
-    ▼
-[output.csv row]
-```
+## Setup
+1. Copy the example `.env` file and add your API key:
+   ```bash
+   cp .env.example .env
+   # Edit .env and set GOOGLE_API_KEY=your_key_here
+   ```
+2. Create and activate a virtual environment (recommended):
+   ```bash
+   python -m venv .venv
+   # Windows:
+   .\.venv\Scripts\activate
+   # macOS/Linux:
+   source .venv/bin/activate
+   ```
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
----
+## Usage
 
-## Install
-
-```bash
-pip install -r code/requirements.txt
-```
-
-> The sentence-transformers model (`all-MiniLM-L6-v2`, ~22 MB) is downloaded
-> automatically on first run and cached locally.
-
----
-
-## Configure
-
-```bash
-# Copy the example and fill in your key
-cp code/.env.example .env
-# Edit .env and set:
-#   ANTHROPIC_API_KEY=sk-ant-...
-```
-
----
-
-## Run
-
+**1. Run the Full Pipeline**
+Processes all 29 unlabeled tickets in `support_tickets/support_tickets.csv` and generates the final `output.csv`.
 ```bash
 python code/main.py
 ```
 
-Output is written to `support_tickets/output.csv`.
-
----
-
-## Self-evaluate (against sample CSV)
-
+**2. Run the Sample Evaluation**
+Run the pipeline specifically against the 10 ground-truth sample tickets:
 ```bash
-python code/eval.py
+python code/main.py --input support_tickets/sample_support_tickets.csv --output support_tickets/sample_output.csv
+```
+Then, evaluate the accuracy:
+```bash
+python code/eval.py --predicted support_tickets/sample_output.csv
 ```
 
-Optional flags:
-
-```bash
-python code/eval.py \
-  --predicted   support_tickets/output.csv \
-  --ground-truth support_tickets/sample_support_tickets.csv
-```
-
----
-
-## File map
-
-| File | Role |
-|------|------|
-| `main.py` | Entry point — orchestrates the 5-stage pipeline |
-| `config.py` | Constants: model, thresholds, keywords, schema |
-| `corpus.py` | Recursive document loader + overlapping chunker |
-| `retriever.py` | Hybrid BM25 + semantic retrieval (local, no API) |
-| `safety.py` | Stage 1: adversarial / injection / high-risk guard |
-| `router.py` | Stage 2: domain detection (HackerRank / Claude / Visa) |
-| `agent.py` | Stage 3 + 4: Claude API triage → structured JSON |
-| `validator.py` | Stage 5: hallucination guard via second Claude call |
-| `output.py` | Writes output.csv with correct column contract |
-| `eval.py` | Self-evaluation against sample_support_tickets.csv |
-| `requirements.txt` | Pinned dependencies |
-
----
-
-## Design Decisions
-
-| Decision | Rationale |
-|----------|-----------|
-| **Hybrid retrieval (BM25 + semantic)** | BM25 handles exact keyword / error-code matches; semantic handles paraphrased queries. Neither alone is best. |
-| **5-stage pipeline** | Separates safety, routing, retrieval, generation, and validation as independent, testable, explainable concerns. |
-| **Pre-LLM safety layer** | Keyword-based escalation runs before any API call — fraud/injection handling is deterministic and free. |
-| **Confidence-based escalation** | If retrieval confidence < 0.25, we escalate rather than hallucinate an answer. |
-| **Hallucination validator** | A second LLM call verifies the response is grounded in retrieved context — the biggest differentiator. |
-| **Claude API (not Ollama)** | Structured JSON output quality from local models is inconsistent. Claude returns valid JSON reliably, critical for 50+ rows. |
-| **No web calls** | All knowledge comes from the local `data/` corpus, as required by the problem statement. |
-
----
-
-## Known Limitations
-
-- Multi-request tickets (user asks two independent questions in one message)
-- `company=None` tickets with ambiguous language may be misrouted
-- Non-English tickets (one French/Spanish Visa example in the dataset)
-
----
-
-## Submission Checklist
-
-- [ ] `python code/main.py` runs without errors
-- [ ] `support_tickets/output.csv` has same row count as `support_tickets/support_tickets.csv`
-- [ ] All `status` values are `replied` or `escalated`
-- [ ] All `request_type` values are `product_issue`, `feature_request`, `bug`, or `invalid`
-- [ ] No API keys in any committed file
-- [ ] `python code/eval.py` shows reasonable accuracy
+## Architecture
+- `main.py`: Orchestrator tying all stages together.
+- `agent.py`: LLM reasoning and structured JSON generation.
+- `corpus.py`: Document chunking and indexing.
+- `retrieval.py`: Hybrid BM25 + embedding-based semantic search.
+- `safety.py`: Prompt injection and sensitive topic detection.
+- `output.py`: Safe atomic file writes.
